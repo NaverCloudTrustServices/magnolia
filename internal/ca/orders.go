@@ -87,6 +87,20 @@ func (ord *order) expiry() time.Time {
 	return ord.created.Add(3 * time.Hour)
 }
 
+// challengeTypes returns the challenge types offered for id, in the sequence
+// they are listed in its authorization. Wildcard names can only be validated
+// with DNS-based methods (BRs 3.2.2.4).
+func challengeTypes(id identifier) []string {
+	switch {
+	case id.Type == "ip":
+		return []string{"http-01"}
+	case strings.HasPrefix(id.Value, "*."):
+		return []string{"dns-01"}
+	default:
+		return []string{"http-01", "dns-01"}
+	}
+}
+
 func (a *authz) authzStatus() string {
 	status := a.challStatus()
 	if status == "processing" {
@@ -174,15 +188,15 @@ func (ca *CA) renderAuthz(ord *order, i int) map[string]any {
 		j["wildcard"] = true
 	}
 
-	switch {
-	case authz.selectedType != "":
-		j["challenges"] = []map[string]any{ca.renderChallenge(ord, i, authz, authz.selectedType)}
-	case !isWildcard:
-		j["challenges"] = []map[string]any{ca.renderChallenge(ord, i, authz, "http-01")}
-	default:
-		// TODO: we don't support wildcard challenges yet.
-		j["challenges"] = []map[string]any{}
+	types := challengeTypes(ord.identifiers[i])
+	if authz.selectedType != "" {
+		types = []string{authz.selectedType}
 	}
+	challenges := make([]map[string]any, 0, len(types))
+	for _, typ := range types {
+		challenges = append(challenges, ca.renderChallenge(ord, i, authz, typ))
+	}
+	j["challenges"] = challenges
 
 	return j
 }

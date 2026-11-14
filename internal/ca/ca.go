@@ -410,7 +410,7 @@ func (ca *CA) handleChallenge(payload []byte, r *http.Request) (*response, acmee
 		return nil, err
 	}
 	typ := r.PathValue("type")
-	if typ != "http-01" || strings.HasPrefix(ord.identifiers[i].Value, "*.") {
+	if !slices.Contains(challengeTypes(ord.identifiers[i]), typ) {
 		return nil, acmeerrors.Custom("challengeNotFound", 404, "challenge does not exist")
 	}
 

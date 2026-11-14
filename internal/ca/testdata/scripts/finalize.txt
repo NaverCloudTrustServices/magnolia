@@ -145,3 +145,34 @@ POST $finalize3
 payload {"csr": "$csr3"}
 $body.status == valid
 $body.certificate ~ /3-[A-Z2-7]{8}$$
+
+# Wildcard names are issued as requested.
+POST $dir.newOrder
+payload {"identifiers": [{"type": "dns", "value": "*.example.org"}, {"type": "dns", "value": "example.org"}]}
+$code == 201
+capture order4 = $header.Location
+capture finalize4 = $body.finalize
+capture order4Authz0 = $body.authorizations[0]
+capture order4Authz1 = $body.authorizations[1]
+
+POST $order4Authz0/challenge/dns-01
+payload {}
+$body.status == valid
+
+POST $order4Authz1/challenge/dns-01
+payload {}
+$body.status == valid
+
+# The base name does not stand in for the wildcard.
+csr baseCSR certKey example.org www.example.org
+
+POST $finalize4
+payload {"csr": "$baseCSR"}
+error == badCSR
+
+csr csr4 certKey example.org *.example.org
+
+POST $finalize4
+payload {"csr": "$csr4"}
+$body.status == valid
+$body.certificate ~ /4-[A-Z2-7]{8}$$

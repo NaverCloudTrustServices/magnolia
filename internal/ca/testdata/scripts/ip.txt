@@ -2,8 +2,8 @@ POST $dir.newAccount
 payload {}
 $code == 201
 
-# An order can mix IP addresses and DNS names. IP addresses are validated with
-# http-01, like DNS names.
+# An order can mix IP addresses and DNS names. IP addresses can only be
+# validated with http-01.
 POST $dir.newOrder
 payload {"identifiers": [{"type": "dns", "value": "example.org"}, {"type": "ip", "value": "1.1.1.1"}, {"type": "ip", "value": "2606:4700:4700::1111"}]}
 $code == 201
@@ -30,6 +30,11 @@ POST-as-GET $authz2
 $body.identifier == {"type":"ip","value":"2606:4700:4700::1111"}
 $body.challenges[0].type == http-01
 capture chall2 = $body.challenges[0].url
+
+POST $authz1/challenge/dns-01
+payload {}
+$code == 404
+$body.type == https://magnolia-ca.com/acme/error/challengeNotFound
 
 POST $chall0
 payload {}

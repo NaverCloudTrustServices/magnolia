@@ -10,13 +10,20 @@ capture authz0 = $body.authorizations[0]
 capture authz1 = $body.authorizations[1]
 capture wildcardAuthz = $body.authorizations[2]
 
+# DNS names can be validated with http-01 or dns-01, which share a token.
 POST-as-GET $authz0
 $body.challenges[0].type == http-01
+$body.challenges[1].type == dns-01
+$body.challenges[1].status == pending
+$body.challenges[1].url == $authz0/challenge/dns-01
+$body.challenges[1].token == $body.challenges[0].token
+$body.challenges[2] !exists
 capture chall0 = $body.challenges[0].url
 capture token0 = $body.challenges[0].token
 
 POST-as-GET $authz1
-capture chall1 = $body.challenges[0].url
+$body.challenges[0].token != $token0
+capture chall1 = $body.challenges[1].url
 
 # POST-as-GET returns the challenge without starting it.
 POST-as-GET $chall0
@@ -70,11 +77,26 @@ $body.error !exists
 $header.Link contains <$authz0>;rel="up"
 capture validated = $body.validated
 
+# A valid authorization lists only the challenge that was validated, and the
+# other one is gone.
 POST-as-GET $authz0
 $body.status == valid
+$body.challenges[0].type == http-01
 $body.challenges[0].status == valid
 $body.challenges[0].validated == $validated
 $body.challenges[1] !exists
+
+POST-as-GET $authz0/challenge/dns-01
+$code == 404
+$body.type == https://magnolia-ca.com/acme/error/challengeNotFound
+
+POST $authz0/challenge/dns-01
+payload {}
+$code == 404
+$body.type == https://magnolia-ca.com/acme/error/challengeNotFound
+
+POST-as-GET $chall0
+$body.status == valid
 
 # The order is ready only once all its authorizations are valid.
 POST-as-GET $order
@@ -90,22 +112,46 @@ $body.validated == $validated
 
 POST $chall1
 payload {}
+$body.type == dns-01
 $body.status == valid
+
+POST-as-GET $authz1
+$body.challenges[0].type == dns-01
+$body.challenges[1] !exists
+
+POST $authz1/challenge/http-01
+payload {}
+$code == 404
+$body.type == https://magnolia-ca.com/acme/error/challengeNotFound
 
 POST-as-GET $order
 $body.status == pending
 
-# Wildcard identifiers have no challenges.
+# Wildcard identifiers can only be validated with dns-01.
 POST-as-GET $wildcardAuthz
-$body.challenges == []
+$body.challenges[0].type == dns-01
+$body.challenges[0].token != $token0
+$body.challenges[1] !exists
+capture wildcardChall = $body.challenges[0].url
 
 POST $wildcardAuthz/challenge/http-01
 payload {}
 $code == 404
 $body.type == https://magnolia-ca.com/acme/error/challengeNotFound
 
+POST-as-GET $wildcardAuthz
+$body.status == pending
+
+POST $wildcardChall
+payload {}
+$body.type == dns-01
+$body.status == valid
+
+POST-as-GET $order
+$body.status == ready
+
 # Unknown challenges and authorizations.
-POST $authz1/challenge/dns-01
+POST $authz1/challenge/tls-alpn-01
 payload {}
 $code == 404
 $body.type == https://magnolia-ca.com/acme/error/challengeNotFound

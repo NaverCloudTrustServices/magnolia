@@ -33,7 +33,8 @@ $body.challenges[0].status == pending
 $body.challenges[0].url exists
 $body.challenges[0].token ~ ^[A-Za-z0-9_-]{22,}$$
 $body.challenges[0].validated !exists
-$body.challenges[1] !exists
+$body.challenges[1].type == dns-01
+$body.challenges[2] !exists
 
 POST-as-GET https://magnolia.test/acme/order/does-not-exist
 $code == 404
