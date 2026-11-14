@@ -19,13 +19,15 @@ import (
 
 // Backend is an object storage. It is dedicated to a single log pair.
 //
-// It can be eventually consistent, but writes must be durable once they return.
+// It can be eventually consistent, but writes must be durable once they return,
+// unless [UploadOptions.BestEffort] is set.
 //
 // The Upload and Fetch methods must be usable concurrently.
 type Backend interface {
 	// Upload writes the value for a key. Upload is expected to retry transient
 	// errors, and only return an error for unrecoverable errors. When Upload
-	// returns, the object must be fully persisted. opts may be nil.
+	// returns, the object must be fully persisted, unless opts.BestEffort is
+	// set. opts may be nil.
 	Upload(ctx context.Context, key string, data []byte, opts *UploadOptions) error
 
 	// Fetch returns the value for a key.
@@ -53,6 +55,11 @@ type UploadOptions struct {
 	// Note that the same value may still be re-uploaded, and must succeed.
 	// [Backend.Discard] can still be used on immutable entries.
 	Immutable bool
+
+	// BestEffort is true if the object is allowed to be lost, or to be left
+	// empty, by a crash of the machine shortly after Upload returns. Backends
+	// can use it to skip expensive durability guarantees.
+	BestEffort bool
 }
 
 var optsHashTile = &UploadOptions{Immutable: true}
@@ -100,7 +107,11 @@ func (s *LocalBackend) Upload(ctx context.Context, key string, data []byte, opts
 		return acmeerrors.Internal("failed to localize key %q as a filesystem path: %w", key, err)
 	}
 	path := filepath.Join(s.dir, name)
-	if err := durable.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	mkdirAll, writeFile := durable.MkdirAll, durable.WriteFile
+	if opts != nil && opts.BestEffort {
+		mkdirAll, writeFile = os.MkdirAll, writeFileNoSync
+	}
+	if err := mkdirAll(filepath.Dir(path), 0755); err != nil {
 		return acmeerrors.Internal("failed to create directory %q: %w", filepath.Dir(path), err)
 	}
 	var perms os.FileMode = 0644
@@ -131,7 +142,35 @@ func (s *LocalBackend) Upload(ctx context.Context, key string, data []byte, opts
 	}
 	s.log.DebugContext(ctx, "local file write", "key", key,
 		"size", len(data), "path", path, "perms", perms)
-	return durable.WriteFile(path, data, perms)
+	return writeFile(path, data, perms)
+}
+
+// writeFileNoSync is like [durable.WriteFile], but it doesn't sync the file
+// contents or the directory entry to disk. It still prevents partial writes
+// from being visible, but after a crash the file may be missing or, depending
+// on the filesystem, empty.
+func writeFileNoSync(name string, data []byte, perm os.FileMode) (err error) {
+	f, err := os.CreateTemp(filepath.Dir(name), "."+filepath.Base(name))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			os.Remove(f.Name())
+		}
+	}()
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), name)
 }
 
 func (s *LocalBackend) Fetch(ctx context.Context, key string) ([]byte, error) {

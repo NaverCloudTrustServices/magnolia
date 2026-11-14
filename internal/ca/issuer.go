@@ -297,7 +297,8 @@ func (iss *Issuer) cosignatures(st *lockstep.SignedSubtree) []mtc.Cosignature {
 // paths can't be predicted from the index and certificates can't be scraped by
 // enumerating them.
 
-var optsCertFile = &lockstep.UploadOptions{Immutable: true}
+var optsCertFile = &lockstep.UploadOptions{Immutable: true, BestEffort: true}
+var optsSubtreeFile = &lockstep.UploadOptions{Immutable: true}
 
 func certFileKey(notAfter time.Time, kind string, index int64, token string) string {
 	return "certs/" + notAfter.Format(time.DateOnly) + "/" + kind + "/" + indexPath(index) + "-" + token
@@ -332,7 +333,7 @@ func (iss *Issuer) subtreesSigned(ctx context.Context, subtrees []*lockstep.Sign
 		if err != nil {
 			return fmt.Errorf("encoding cosignatures of [%d, %d): %w", st.Start, st.End, err)
 		}
-		if err := iss.backend.Upload(ctx, subtreeKey(st), b, optsCertFile); err != nil {
+		if err := iss.backend.Upload(ctx, subtreeKey(st), b, optsSubtreeFile); err != nil {
 			return fmt.Errorf("writing cosignatures of [%d, %d): %w", st.Start, st.End, err)
 		}
 	}

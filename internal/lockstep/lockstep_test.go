@@ -1609,6 +1609,16 @@ func TestLocalBackend(t *testing.T) {
 		if _, err := backend.Fetch(ctx, "issuance/tile/0/999"); err == nil {
 			t.Error("expected fetching a missing file to fail")
 		}
+
+		bestEffort := &lockstep.UploadOptions{Immutable: true, BestEffort: true}
+		fatalIfErr(t, backend.Upload(ctx, "best/effort/file", data, bestEffort))
+		fatalIfErr(t, backend.Upload(ctx, "best/effort/file", data, bestEffort))
+		if got, err := backend.Fetch(ctx, "best/effort/file"); err != nil || !bytes.Equal(got, data) {
+			t.Errorf("fetching a best-effort file returned %x, %v", got, err)
+		}
+		if err := backend.Upload(ctx, "best/effort/file", other, bestEffort); err == nil {
+			t.Error("expected modifying an immutable best-effort file to fail")
+		}
 	})
 }
 
